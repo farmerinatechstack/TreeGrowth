@@ -5,11 +5,12 @@ using System.Collections.Generic;
 public class TreeGrowth : MonoBehaviour {
     // Tree Options
     public int MaxVertices = 1024;
+    public float GrowthDelay = 0.1f;
     [Range(4, 20)]
     public int NumSides = 8;
     [Range(0.25f, 4f)]
     public float BaseRadius = 2f;
-    [Range(0.75f, 0.95f)]
+    [Range(0.75f, 1.0f)]
     public float RadiusFalloff = 0.9f;
     [Range(0.01f, 0.2f)]
     public float MinimumRadius = 0.02f;
@@ -26,10 +27,6 @@ public class TreeGrowth : MonoBehaviour {
     MeshFilter mFilter;
     MeshRenderer mRenderer;
     public Material treeMaterial;
-    MeshFilter tempFilter;
-    MeshRenderer tempRenderer;
-    public Material tempMaterial;
-    Color treeColor;
 
     // Tree Parameters
     List<Vector3> vertexList; // Vertex list
@@ -37,10 +34,19 @@ public class TreeGrowth : MonoBehaviour {
 
     float[] ringShape;
 
-    private int branchCalls;
-    private float alpha;
+    private int depth;
     [SerializeField]
     float treeLife;
+    Vector3 lastPosition;
+    float lastRadius;
+
+    // Counters for debugging
+    int levelOneDepth;
+    int levelTwoDepth;
+    int levelThreeDepth;
+    int levelFourDepth;
+    
+    int timesBranchCalled;
 
     // Add a Mesh Filter/Renderer if necessary, and store each
     void OnEnable()
@@ -55,118 +61,116 @@ public class TreeGrowth : MonoBehaviour {
     void Start () {
         vertexList = new List<Vector3>();
         triangleList = new List<int>();
-        alpha = 0f;
-        treeColor = new Color(treeMaterial.color.r, treeMaterial.color.g, treeMaterial.color.b, 0f);
+        lastPosition = Vector3.zero;
+        timesBranchCalled = 0;
+        depth = 0;
 
-        Color transparent = new Color(treeColor.r, treeColor.g, treeColor.b, 0f);
-        treeMaterial.color = transparent;
-        tempMaterial.color = transparent;
+        int verticesPerLevel = NumSides + 1;
+        int maxBranchCallsByVertexCount = MaxVertices / verticesPerLevel;
+        int maxBranchCallsByRadiusFalloff = (int) (Mathf.Log(MinimumRadius / BaseRadius) / Mathf.Log(RadiusFalloff));
 
-        BuildBranch(2, vertexList, triangleList);
-        DrawBranch(vertexList, triangleList, treeMaterial, gameObject);
+        levelFourDepth = (maxBranchCallsByVertexCount > maxBranchCallsByRadiusFalloff) ? maxBranchCallsByRadiusFalloff : maxBranchCallsByVertexCount;
+        levelThreeDepth = (int)(levelFourDepth * 3f / 4f);
+        levelTwoDepth = (int)(levelFourDepth / 2f);
+        levelOneDepth = (int)(levelFourDepth / 4f);
+
+        print("level four depth: " + levelFourDepth);
+
+        ExtendBranch(levelOneDepth);
     }
 
     // Update is called once per frame
     void Update () {
-        if (treeLife > 50 && treeLife < 80)
+        if (treeLife > 25)
         {
-            StartCoroutine("IncrementalGrowth");
-        } else if (treeLife > 80)
-        {
-            ExtendBranch(15);
+            ExtendBranch(levelTwoDepth);
+        } else if (treeLife > 50) {
+            ExtendBranch(levelThreeDepth);
+        } else if (treeLife > 75) {
+            ExtendBranch(levelFourDepth);
         }
         treeLife = 0;
-
     }
 
-    IEnumerator IncrementalGrowth()
+    void ExtendBranch(int depthLimit)
     {
-        float timeStep = 0.1f;
-
-        ExtendBranch(3);
-        yield return new WaitForSeconds(timeStep);
-        ExtendBranch(4);
-        yield return new WaitForSeconds(timeStep);
-        ExtendBranch(5);
-        yield return new WaitForSeconds(timeStep);
-        ExtendBranch(6);
-        yield return new WaitForSeconds(timeStep);
-        ExtendBranch(7);
-    }
-
-    void ExtendBranch(int branchSize)
-    {
-        BuildBranch(branchSize, vertexList, triangleList);
-
-        GameObject treeCopy = new GameObject();
-        treeCopy.transform.position = transform.position;
-        mFilter = treeCopy.AddComponent<MeshFilter>();
-        mRenderer = treeCopy.AddComponent<MeshRenderer>();
-
-        DrawBranch(vertexList, triangleList, tempMaterial, treeCopy);
-    }
-
-    void BuildBranch(int branchDepthLimit, List<Vector3> vtxList, List<int> triList)
-    {
-        branchCalls = 0;
-        Quaternion originalRotation = transform.localRotation;
-
+        depth = 0;
         SetRingShape();
 
-        // Main recursive call, starts creating the ring of vertices in the trunk's base
-        Branch(new Quaternion(), Vector3.zero, -1, BaseRadius, branchDepthLimit, vtxList, triList);
-        transform.localRotation = originalRotation; // Restore original object rotation
+        StartCoroutine(Branch(new Quaternion(), -1, BaseRadius, 100));
+        /*
+        if (vertexList.Count == 0) // the branch is empty
+        {
+            StartCoroutine(Branch(new Quaternion(), -1, BaseRadius, depthLimit));
+        } else {
+            UncapBranch();
+            StartCoroutine(Branch(new Quaternion(), vertexList.Count - NumSides - 1, lastRadius * 1 / RadiusFalloff, depthLimit));
+        }
+        */
     }
 
-    private void DrawBranch(List<Vector3> vtxList, List<int> triList, Material m, GameObject tree)
+    IEnumerator Branch(Quaternion quaternion, int lastRingVertexIndex, float radius, int depthLimit)
     {
-        // Set the material as faded out
-        Color transparent = new Color(treeColor.r, treeColor.g, treeColor.b, 0f);
-        m.color = transparent;
+        Quaternion originalRotation = transform.localRotation;
+        
+        while (depth < depthLimit)
+        {
+            if (vertexList.Count != 0) UncapBranch();
+            depth++;
 
+            AddRingVertices(quaternion, radius);
+
+            if (lastRingVertexIndex >= 0) AddTriangles(lastRingVertexIndex);
+
+            radius *= RadiusFalloff;
+            lastRadius = radius;
+
+            // Randomize the branch angle
+            transform.rotation = quaternion;
+            float x = (Random.value - 0.5f) * Twisting;
+            float z = (Random.value - 0.5f) * Twisting;
+            if (Random.value > 0.7f) // Randomly apply extra twisting
+            {
+                x = x * 1.5f;
+                z = z * 1.5f;
+            }
+            transform.Rotate(x, 0f, z);
+
+            // Extend the branch
+            if (depth >= depthLimit) CapBranch(lastPosition);
+            float extension = (Random.value < 0.9f) ? SegmentLength : SegmentLength * 2f;
+            lastPosition += quaternion * new Vector3(0f, extension, 0f);
+
+            // Prep for next extension
+            quaternion = transform.rotation;
+            transform.localRotation = originalRotation;
+            CapBranch(lastPosition);
+            DrawBranch();
+
+            lastRingVertexIndex = vertexList.Count - NumSides - 1;
+            yield return new WaitForSeconds(GrowthDelay);
+        }
+
+        yield break;
+    }
+
+    private void DrawBranch()
+    {
         // Get mesh or create one
         Mesh mesh = mFilter.sharedMesh;
         if (mesh == null)
             mesh = mFilter.sharedMesh = new Mesh();
         else
             mesh.Clear();
-        mRenderer.sharedMaterial = m;
+        mRenderer.sharedMaterial = treeMaterial;
 
         // Assign vertex data
-        mesh.vertices = vtxList.ToArray();
-        mesh.triangles = triList.ToArray();
+        mesh.vertices = vertexList.ToArray();
+        mesh.triangles = triangleList.ToArray();
 
         // Update mesh
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
-        mesh.Optimize(); // Do not call this if we are going to change the mesh dynamically!
-
-        // Fade the material in
-        alpha = 0;
-        StartCoroutine(FadeBranchIn(m, tree));
-    }
-
-
-    IEnumerator FadeBranchIn(Material m, GameObject tree)
-    {
-        while(alpha < 1f)
-        {
-            alpha += Time.deltaTime * 2;
-
-            float newAlpha = Mathf.Lerp(0f, 1f, alpha);
-            Color newColor = new Color(treeColor.r, treeColor.g, treeColor.b, newAlpha);
-            m.color = newColor;
-
-            yield return null;
-        }
-
-        tree.GetComponent<MeshRenderer>().material = treeMaterial;
-
-        Color newColor = new Color(treeColor.r, treeColor.g, treeColor.b, 1.0f);
-        m.color = newColor;
-        tree.GetComponent<MeshRenderer>().material = treeMaterial;
-
-        yield break;
     }
 
     private void SetRingShape()
@@ -177,44 +181,26 @@ public class TreeGrowth : MonoBehaviour {
         ringShape[NumSides] = ringShape[0];
     }
 
-    void Branch(Quaternion quaternion, Vector3 position, int lastRingVertexIndex, float radius, int branchLimit, List<Vector3> vtxList, List<int>triList)
+    private void UncapBranch()
     {
-        AddRingVertices(quaternion, position, radius, vtxList);
-        
-        if (lastRingVertexIndex >= 0) AddTriangles(lastRingVertexIndex, vtxList, triList);
-
-        radius *= RadiusFalloff;
-        if (radius < MinimumRadius || vertexList.Count + NumSides >= MaxVertices || branchCalls >= branchLimit) // End branch if reached minimum radius, or ran out of vertices
-        {
-            EndBranch(position, vtxList, triList);
-            return;
-        }
-
-        // Randomize the branch angle
-        //transform.rotation = quaternion;
-        float x = (Random.value - 0.5f) * Twisting;
-        float z = (Random.value - 0.5f) * Twisting;
-        transform.Rotate(x, 0f, z);
-
-        lastRingVertexIndex = vertexList.Count - NumSides - 1;
-        position += quaternion * new Vector3(0f, SegmentLength, 0f);
-        branchCalls++;
-        Branch(transform.rotation, position, lastRingVertexIndex, radius, branchLimit, vtxList, triList);
+        int numToRemove = NumSides * 3;
+        triangleList.RemoveRange(triangleList.Count - numToRemove, numToRemove);
+        vertexList.RemoveAt(vertexList.Count - 1); // Add central vertex
     }
 
-    private void EndBranch(Vector3 position, List<Vector3> vtxList, List<int> triList)
+    private void CapBranch(Vector3 position)
     {
         // Create a cap for ending the branch
-        vtxList.Add(position); // Add central vertex
-        for (var n = vtxList.Count - NumSides - 2; n < vertexList.Count - 2; n++) // Add cap
+        vertexList.Add(position); // Add central vertex
+        for (var n = vertexList.Count - NumSides - 2; n < vertexList.Count - 2; n++) // Add cap
         {
-            triList.Add(n);
-            triList.Add(vertexList.Count - 1);
-            triList.Add(n + 1);
+            triangleList.Add(n);
+            triangleList.Add(vertexList.Count - 1);
+            triangleList.Add(n + 1);
         }
     }
 
-    private void AddRingVertices(Quaternion quaternion, Vector3 position, float radius, List<Vector3> vtxList)
+    private void AddRingVertices(Quaternion quaternion, float radius)
     {
         Vector3 offset = Vector3.zero;
         float textureStepU = 1f / NumSides;
@@ -227,22 +213,22 @@ public class TreeGrowth : MonoBehaviour {
             float r = ringShape[n] * radius;
             offset.x = r * Mathf.Cos(ang); // Get X, Z vertex offsets
             offset.z = r * Mathf.Sin(ang);
-            vtxList.Add(position + quaternion * offset); // Add Vertex position
+            vertexList.Add(lastPosition + quaternion * offset); // Add Vertex position
         }
     }
 
-    private void AddTriangles(int lastRingVertexIndex, List<Vector3> vtxList, List<int> triList)
+    private void AddTriangles(int lastRingVertexIndex)
     {
         // Create quads between the last two tree rings
-        for (int currentRingVertexIndex = vtxList.Count - NumSides - 1; currentRingVertexIndex < vtxList.Count - 1; currentRingVertexIndex++, lastRingVertexIndex++)
+        for (int currentRingVertexIndex = vertexList.Count - NumSides - 1; currentRingVertexIndex < vertexList.Count - 1; currentRingVertexIndex++, lastRingVertexIndex++)
         {
-            triList.Add(lastRingVertexIndex + 1); // Triangle A
-            triList.Add(lastRingVertexIndex);
-            triList.Add(currentRingVertexIndex);
+            triangleList.Add(lastRingVertexIndex + 1); // Triangle A
+            triangleList.Add(lastRingVertexIndex);
+            triangleList.Add(currentRingVertexIndex);
 
-            triList.Add(currentRingVertexIndex); // Triangle B
-            triList.Add(currentRingVertexIndex + 1);
-            triList.Add(lastRingVertexIndex + 1);
+            triangleList.Add(currentRingVertexIndex); // Triangle B
+            triangleList.Add(currentRingVertexIndex + 1);
+            triangleList.Add(lastRingVertexIndex + 1);
         }
     }
 }
