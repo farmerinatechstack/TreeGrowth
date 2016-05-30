@@ -3,52 +3,65 @@ using System.Collections;
 using System.Collections.Generic;
 
 public class TreeGrowth : MonoBehaviour {
-    // Tree Options
-    public int MaxVertices = 1024;
-    public float GrowthDelay = 0.1f;
+    // Public Tree Variables
+    public int MaxVertices = 2048;
+    public float GrowthDelay = 0.01f;
     [Range(4, 20)]
-    public int NumSides = 8;
+    public int NumSides = 10;
     [Range(0.25f, 4f)]
-    public float BaseRadius = 2f;
+    public float BaseRadius = 4f;
     [Range(0.75f, 1.0f)]
-    public float RadiusFalloff = 0.9f;
+    public float RadiusFalloff = 0.98f;
     [Range(0.01f, 0.2f)]
-    public float MinimumRadius = 0.02f;
+    public float MinimumRadius = 0.2f;
+    [Range(2, 5)]
+    public int BranchAmount = 3;
     [Range(0.5f, 1f)]
-    public float BranchRoundness = 0.8f;
+    public float BranchRoundness = 1f;
     [Range(0.1f, 2f)]
-    public float SegmentLength = 0.5f;
+    public float SegmentLength = 0.2f;
     [Range(0f, 40f)]
-    public float Twisting = 20f;
+    public float Twisting = 8;
     [Range(0f, 0.3f)]
     public float BranchProbability = 0.1f;
 
     // Private Variables
     MeshFilter mFilter;
     MeshRenderer mRenderer;
-    public Material treeMaterial;
 
     // Tree Parameters
     List<Vector3> vertexList; // Vertex list
     List<int> triangleList; // Triangle list
-
+    Material treeMaterial;
     float[] ringShape;
-
-    private int depth;
-    [SerializeField]
-    float treeLife;
+    int lastRingVertexIndex;
     Vector3 lastPosition;
-    float lastRadius;
+    public int branchCallsForSprout;
+    public int branchCalls;
 
-    // Counters for debugging
-    int levelOneDepth;
-    int levelTwoDepth;
-    int levelThreeDepth;
-    int levelFourDepth;
-    
-    int timesBranchCalled;
+    public int getBranchCallsForSprout()
+    {
+        return branchCallsForSprout;
+    }
 
-    // Add a Mesh Filter/Renderer if necessary, and store each
+    public void StoreBranchLimits(int verticesPerLevel, int MaxVertices, float radius, ref int branchCalls, ref int branchCallsForSprout)
+    {
+        int maxBranchCallsByVertexCount = MaxVertices / verticesPerLevel;
+        int maxBranchCallsByRadiusFalloff = (int)(Mathf.Log(MinimumRadius / radius) / Mathf.Log(RadiusFalloff));
+        if (maxBranchCallsByRadiusFalloff < 0 && maxBranchCallsByVertexCount > 0)
+        {
+            branchCalls = maxBranchCallsByVertexCount;
+        } else if (maxBranchCallsByRadiusFalloff > 0 && maxBranchCallsByVertexCount < 0)
+        {
+            branchCalls = maxBranchCallsByRadiusFalloff;
+        } else
+        {
+            branchCalls = (maxBranchCallsByVertexCount > maxBranchCallsByRadiusFalloff) ? maxBranchCallsByRadiusFalloff : maxBranchCallsByVertexCount;
+        }
+        branchCallsForSprout = branchCalls / 3;
+    }
+
+    // Add a Mesh Filter/Renderer
     void OnEnable()
     {
         mFilter = gameObject.GetComponent<MeshFilter>();
@@ -62,91 +75,73 @@ public class TreeGrowth : MonoBehaviour {
         vertexList = new List<Vector3>();
         triangleList = new List<int>();
         lastPosition = Vector3.zero;
-        timesBranchCalled = 0;
-        depth = 0;
+        lastRingVertexIndex = -1;
+        treeMaterial = Resources.Load("TreeBark", typeof(Material)) as Material;
 
-        int verticesPerLevel = NumSides + 1;
-        int maxBranchCallsByVertexCount = MaxVertices / verticesPerLevel;
-        int maxBranchCallsByRadiusFalloff = (int) (Mathf.Log(MinimumRadius / BaseRadius) / Mathf.Log(RadiusFalloff));
-
-        levelFourDepth = (maxBranchCallsByVertexCount > maxBranchCallsByRadiusFalloff) ? maxBranchCallsByRadiusFalloff : maxBranchCallsByVertexCount;
-        levelThreeDepth = (int)(levelFourDepth * 3f / 4f);
-        levelTwoDepth = (int)(levelFourDepth / 2f);
-        levelOneDepth = (int)(levelFourDepth / 4f);
-
-        print("level four depth: " + levelFourDepth);
-
-        ExtendBranch(levelOneDepth);
+        StoreBranchLimits(NumSides + 1, MaxVertices, BaseRadius, ref branchCalls, ref branchCallsForSprout);
+        StartCoroutine("Branch");
     }
 
     // Update is called once per frame
     void Update () {
-        if (treeLife > 25)
-        {
-            ExtendBranch(levelTwoDepth);
-        } else if (treeLife > 50) {
-            ExtendBranch(levelThreeDepth);
-        } else if (treeLife > 75) {
-            ExtendBranch(levelFourDepth);
-        }
-        treeLife = 0;
+
     }
 
-    void ExtendBranch(int depthLimit)
+    void SproutBranches(Vector3 position, float radius, int numChildren)
     {
-        depth = 0;
-        SetRingShape();
-
-        StartCoroutine(Branch(new Quaternion(), -1, BaseRadius, 100));
-        /*
-        if (vertexList.Count == 0) // the branch is empty
+        for (int i = 0; i < BranchAmount; i++)
         {
-            StartCoroutine(Branch(new Quaternion(), -1, BaseRadius, depthLimit));
-        } else {
-            UncapBranch();
-            StartCoroutine(Branch(new Quaternion(), vertexList.Count - NumSides - 1, lastRadius * 1 / RadiusFalloff, depthLimit));
+            GameObject branch = new GameObject();
+            branch.transform.parent = gameObject.transform;
+            branch.transform.localPosition = position;
+
+            branch.AddComponent<TreeGrowth>();
+            branch.GetComponent<TreeGrowth>().BranchAmount = numChildren;
+            branch.GetComponent<TreeGrowth>().BaseRadius = radius;
+            branch.GetComponent<TreeGrowth>().GrowthDelay = GrowthDelay * 2f;
+            branch.GetComponent<TreeGrowth>().Twisting = 12;
         }
-        */
     }
 
-    IEnumerator Branch(Quaternion quaternion, int lastRingVertexIndex, float radius, int depthLimit)
+    IEnumerator Branch()
     {
         Quaternion originalRotation = transform.localRotation;
-        
-        while (depth < depthLimit)
+        Quaternion q = new Quaternion();
+        float radius = BaseRadius;
+        int numBranchIters = 0;
+        SetRingShape();
+
+        while (numBranchIters < branchCalls)
         {
+            numBranchIters++;
+
+
             if (vertexList.Count != 0) UncapBranch();
-            depth++;
+            if (Random.value > 0.9) SproutBranches(lastPosition, radius * 0.2f, 0); // Randomly sprout
+            if (numBranchIters == branchCallsForSprout) SproutBranches(lastPosition, radius*0.9f, BranchAmount-1);
 
-            AddRingVertices(quaternion, radius);
-
+            AddRingVertices(q, radius);
             if (lastRingVertexIndex >= 0) AddTriangles(lastRingVertexIndex);
-
             radius *= RadiusFalloff;
-            lastRadius = radius;
 
-            // Randomize the branch angle
-            transform.rotation = quaternion;
+            // Randomize the branch angle and extend the branch, with random offsets
+            transform.rotation = q;
             float x = (Random.value - 0.5f) * Twisting;
             float z = (Random.value - 0.5f) * Twisting;
-            if (Random.value > 0.7f) // Randomly apply extra twisting
+            if (Random.value > 0.7f)
             {
                 x = x * 1.5f;
                 z = z * 1.5f;
             }
             transform.Rotate(x, 0f, z);
-
-            // Extend the branch
-            if (depth >= depthLimit) CapBranch(lastPosition);
             float extension = (Random.value < 0.9f) ? SegmentLength : SegmentLength * 2f;
-            lastPosition += quaternion * new Vector3(0f, extension, 0f);
+            lastPosition += q * new Vector3(0f, extension, 0f);
 
             // Prep for next extension
-            quaternion = transform.rotation;
+            q = transform.rotation;
             transform.localRotation = originalRotation;
             CapBranch(lastPosition);
             DrawBranch();
-
             lastRingVertexIndex = vertexList.Count - NumSides - 1;
             yield return new WaitForSeconds(GrowthDelay);
         }
