@@ -5,7 +5,7 @@ using System.Collections.Generic;
 public class TreeGrowth : MonoBehaviour {
     // Public Tree Variables
     public int MaxVertices = 2048;
-    public float GrowthDelay = 0.01f;
+    public float GrowthDelay = 0.2f;
     [Range(4, 20)]
     public int NumSides = 10;
     [Range(0.25f, 4f)]
@@ -13,7 +13,7 @@ public class TreeGrowth : MonoBehaviour {
     [Range(0.75f, 1.0f)]
     public float RadiusFalloff = 0.98f;
     [Range(0.01f, 0.2f)]
-    public float MinimumRadius = 0.2f;
+    public float MinimumRadius = 0.25f;
     [Range(2, 5)]
     public int BranchAmount = 3;
     [Range(0.5f, 1f)]
@@ -36,29 +36,12 @@ public class TreeGrowth : MonoBehaviour {
     float[] ringShape;
     int lastRingVertexIndex;
     Vector3 lastPosition;
-    public int branchCallsForSprout;
-    public int branchCalls;
+    int branchCallsForSprout;
+    int branchCalls;
 
     public int getBranchCallsForSprout()
     {
         return branchCallsForSprout;
-    }
-
-    public void StoreBranchLimits(int verticesPerLevel, int MaxVertices, float radius, ref int branchCalls, ref int branchCallsForSprout)
-    {
-        int maxBranchCallsByVertexCount = MaxVertices / verticesPerLevel;
-        int maxBranchCallsByRadiusFalloff = (int)(Mathf.Log(MinimumRadius / radius) / Mathf.Log(RadiusFalloff));
-        if (maxBranchCallsByRadiusFalloff < 0 && maxBranchCallsByVertexCount > 0)
-        {
-            branchCalls = maxBranchCallsByVertexCount;
-        } else if (maxBranchCallsByRadiusFalloff > 0 && maxBranchCallsByVertexCount < 0)
-        {
-            branchCalls = maxBranchCallsByRadiusFalloff;
-        } else
-        {
-            branchCalls = (maxBranchCallsByVertexCount > maxBranchCallsByRadiusFalloff) ? maxBranchCallsByRadiusFalloff : maxBranchCallsByVertexCount;
-        }
-        branchCallsForSprout = branchCalls / 3;
     }
 
     // Add a Mesh Filter/Renderer
@@ -68,6 +51,28 @@ public class TreeGrowth : MonoBehaviour {
         if (mFilter == null) mFilter = gameObject.AddComponent<MeshFilter>();
         mRenderer = gameObject.GetComponent<MeshRenderer>();
         if (mRenderer == null) mRenderer = gameObject.AddComponent<MeshRenderer>();
+
+        TreeControl.IncrementGrowth += DecreaseGrowthDelay;
+        TreeControl.DecrementGrowth += IncreaseGrowthDelay;
+    }
+
+    void OnDisable()
+    {
+        TreeControl.IncrementGrowth -= DecreaseGrowthDelay;
+        TreeControl.DecrementGrowth -= IncreaseGrowthDelay;
+    }
+
+    void IncreaseGrowthDelay()
+    {
+        print("Slowing growth");
+        GrowthDelay *= 2f;
+    }
+
+    void DecreaseGrowthDelay()
+    {
+        print("Speeding up growth");
+        GrowthDelay *= 0.5f;
+        GrowthDelay = (GrowthDelay > 0.01f) ? GrowthDelay : 0.01f;
     }
 
     // Use this for initialization
@@ -78,8 +83,17 @@ public class TreeGrowth : MonoBehaviour {
         lastRingVertexIndex = -1;
         treeMaterial = Resources.Load("TreeBark", typeof(Material)) as Material;
 
-        StoreBranchLimits(NumSides + 1, MaxVertices, BaseRadius, ref branchCalls, ref branchCallsForSprout);
+        SetBranchLimits();
         StartCoroutine("Branch");
+    }
+
+    void SetBranchLimits()
+    {
+        int verticesPerLevel = NumSides + 1;
+        int maxBranchCallsByVertexCount = MaxVertices / verticesPerLevel;
+        int maxBranchCallsByRadiusFalloff = (int)(Mathf.Log(MinimumRadius / BaseRadius) / Mathf.Log(RadiusFalloff));
+        branchCalls = (maxBranchCallsByVertexCount > maxBranchCallsByRadiusFalloff) ? maxBranchCallsByRadiusFalloff : maxBranchCallsByVertexCount;
+        branchCallsForSprout = branchCalls / 3;
     }
 
     // Update is called once per frame
@@ -117,7 +131,7 @@ public class TreeGrowth : MonoBehaviour {
 
 
             if (vertexList.Count != 0) UncapBranch();
-            if (Random.value > 0.9) SproutBranches(lastPosition, radius * 0.2f, 0); // Randomly sprout
+            if (Random.value > 0.9) SproutBranches(lastPosition, radius * 0.1f, 0); // Randomly sprout
             if (numBranchIters == branchCallsForSprout) SproutBranches(lastPosition, radius*0.9f, BranchAmount-1);
 
             AddRingVertices(q, radius);
