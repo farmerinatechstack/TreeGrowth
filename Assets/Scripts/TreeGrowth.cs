@@ -9,7 +9,7 @@ public class TreeGrowth : MonoBehaviour {
     [Range(4, 20)]
     public int NumSides = 10;
     [Range(0.25f, 4f)]
-    public float BaseRadius = 4f;
+    public float BaseRadius = 1f;
     [Range(0.75f, 1.0f)]
     public float RadiusFalloff = 0.98f;
     [Range(0.01f, 0.2f)]
@@ -19,7 +19,7 @@ public class TreeGrowth : MonoBehaviour {
     [Range(0.5f, 1f)]
     public float BranchRoundness = 1f;
     [Range(0.1f, 2f)]
-    public float SegmentLength = 0.2f;
+    public float SegmentLength = 0.1f;
     [Range(0f, 40f)]
     public float Twisting = 8;
     [Range(0f, 0.3f)]
